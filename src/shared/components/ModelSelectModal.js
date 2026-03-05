@@ -24,6 +24,7 @@ export default function ModelSelectModal({
   const [searchQuery, setSearchQuery] = useState("");
   const [combos, setCombos] = useState([]);
   const [providerNodes, setProviderNodes] = useState([]);
+  const [dynamicModels, setDynamicModels] = useState({}); // { [nodeId]: [{ id, name }] }
 
   const fetchCombos = async () => {
     try {
@@ -57,15 +58,38 @@ export default function ModelSelectModal({
     if (isOpen) fetchProviderNodes();
   }, [isOpen]);
 
+  // Dynamically fetch models for custom providers with no existing aliases
+  useEffect(() => {
+    if (!isOpen || providerNodes.length === 0) return;
+    const activeConnectionIds = activeProviders.map(p => p.provider);
+    const nodesWithConnections = providerNodes.filter(
+      node => activeConnectionIds.includes(node.id) && node.type === "openai-compatible"
+    );
+
+    nodesWithConnections.forEach(async (node) => {
+      // Only fetch if no aliases already exist for this node
+      const hasAliases = Object.values(modelAliases).some(v => v.startsWith(`${node.id}/`));
+      if (hasAliases || dynamicModels[node.id]) return;
+      try {
+        const res = await fetch(`/api/provider-nodes/${node.id}/models`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.models?.length > 0) {
+          setDynamicModels(prev => ({ ...prev, [node.id]: data.models }));
+        }
+      } catch { /* ignore */ }
+    });
+  }, [isOpen, providerNodes, activeProviders, modelAliases]);
+
   const allProviders = useMemo(() => ({ ...OAUTH_PROVIDERS, ...APIKEY_PROVIDERS }), []);
 
   // Group models by provider with priority order
   const groupedModels = useMemo(() => {
     const groups = {};
-    
+
     // Get all active provider IDs from connections
     const activeConnectionIds = activeProviders.map(p => p.provider);
-    
+
     // Only show connected providers (including both standard and custom)
     const providerIdsToShow = new Set([
       ...activeConnectionIds,  // Only connected providers
@@ -82,7 +106,7 @@ export default function ModelSelectModal({
       const alias = PROVIDER_ID_TO_ALIAS[providerId] || providerId;
       const providerInfo = allProviders[providerId] || { name: providerId, color: "#666" };
       const isCustomProvider = isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId);
-      
+
       if (providerInfo.passthroughModels) {
         const aliasModels = Object.entries(modelAliases)
           .filter(([, fullModel]) => fullModel.startsWith(`${alias}/`))
@@ -91,12 +115,12 @@ export default function ModelSelectModal({
             name: aliasName,
             value: fullModel,
           }));
-        
+
         if (aliasModels.length > 0) {
           // Check for custom name from providerNodes (for compatible providers)
           const matchedNode = providerNodes.find(node => node.id === providerId);
           const displayName = matchedNode?.name || providerInfo.name;
-          
+
           groups[providerId] = {
             name: displayName,
             alias: alias,
@@ -105,12 +129,12 @@ export default function ModelSelectModal({
           };
         }
       } else if (isCustomProvider) {
-        // Match provider node to get custom name
+        // Match provider node to get custom name and prefix
         const matchedNode = providerNodes.find(node => node.id === providerId);
         const displayName = matchedNode?.name || providerInfo.name;
-        
+        const nodePrefix = matchedNode?.prefix || providerId;
+
         // Get models from modelAliases using providerId (not prefix)
-        // modelAliases format: { alias: "providerId/modelId" }
         const nodeModels = Object.entries(modelAliases)
           .filter(([, fullModel]) => fullModel.startsWith(`${providerId}/`))
           .map(([aliasName, fullModel]) => ({
@@ -118,14 +142,27 @@ export default function ModelSelectModal({
             name: aliasName,
             value: fullModel,
           }));
-        
-        // Only add to groups if there are models (consistent with other provider types)
+
         if (nodeModels.length > 0) {
           groups[providerId] = {
             name: displayName,
-            alias: matchedNode?.prefix || providerId,
+            alias: nodePrefix,
             color: providerInfo.color,
             models: nodeModels,
+            isCustom: true,
+            hasModels: true,
+          };
+        } else if (dynamicModels[providerId]?.length > 0) {
+          // Fallback: dynamically fetched models from the provider's /v1/models
+          groups[providerId] = {
+            name: displayName,
+            alias: nodePrefix,
+            color: providerInfo.color || "#888",
+            models: dynamicModels[providerId].map(m => ({
+              id: m.id,
+              name: m.name,
+              value: `${nodePrefix}/${m.id}`,
+            })),
             isCustom: true,
             hasModels: true,
           };
@@ -148,7 +185,7 @@ export default function ModelSelectModal({
     });
 
     return groups;
-  }, [activeProviders, modelAliases, allProviders, providerNodes]);
+  }, [activeProviders, modelAliases, allProviders, providerNodes, dynamicModels]);
 
   // Filter combos by search query
   const filteredCombos = useMemo(() => {
@@ -172,7 +209,7 @@ export default function ModelSelectModal({
       );
 
       const providerNameMatches = group.name.toLowerCase().includes(query);
-      
+
       if (matchedModels.length > 0 || providerNameMatches) {
         filtered[providerId] = {
           ...group,
@@ -236,8 +273,8 @@ export default function ModelSelectModal({
                     onClick={() => handleSelect({ id: combo.name, name: combo.name, value: combo.name })}
                     className={`
                       px-2 py-1 rounded-xl text-xs font-medium transition-all border hover:cursor-pointer
-                      ${isSelected 
-                        ? "bg-primary text-white border-primary" 
+                      ${isSelected
+                        ? "bg-primary text-white border-primary"
                         : "bg-surface border-border text-text-main hover:border-primary/50 hover:bg-primary/5"
                       }
                     `}
@@ -276,8 +313,8 @@ export default function ModelSelectModal({
                     onClick={() => handleSelect(model)}
                     className={`
                       px-2 py-1 rounded-xl text-xs font-medium transition-all border hover:cursor-pointer
-                      ${isSelected 
-                        ? "bg-primary text-white border-primary" 
+                      ${isSelected
+                        ? "bg-primary text-white border-primary"
                         : "bg-surface border-border text-text-main hover:border-primary/50 hover:bg-primary/5"
                       }
                     `}
