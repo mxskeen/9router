@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { CLI_TOOLS } from "@/shared/constants/cliTools";
 import { getModelsByProviderId, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
+import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { MitmServerCard, MitmToolCard } from "@/app/(dashboard)/dashboard/cli-tools/components";
 
 const MITM_TOOL_IDS = ["antigravity", "copilot"];
@@ -54,7 +55,11 @@ export default function MitmPageClient() {
 
   const hasActiveProviders = () => {
     const active = getActiveProviders();
-    return active.some(conn => getModelsByProviderId(conn.provider).length > 0);
+    return active.some(conn =>
+      getModelsByProviderId(conn.provider).length > 0 ||
+      isOpenAICompatibleProvider(conn.provider) ||
+      isAnthropicCompatibleProvider(conn.provider)
+    );
   };
 
   const mitmTools = Object.entries(CLI_TOOLS).filter(([id]) => MITM_TOOL_IDS.includes(id));

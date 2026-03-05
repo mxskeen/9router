@@ -33,12 +33,24 @@ export default function MitmToolCard({
   const [modelMappings, setModelMappings] = useState({});
   const [modalOpen, setModalOpen] = useState(false);
   const [currentEditingAlias, setCurrentEditingAlias] = useState(null);
+  const [modelAliases, setModelAliases] = useState({});
 
   const isWindows = typeof navigator !== "undefined" && navigator.userAgent?.includes("Windows");
 
   useEffect(() => {
-    if (isExpanded) loadSavedMappings();
+    if (isExpanded) {
+      loadSavedMappings();
+      fetchModelAliases();
+    }
   }, [isExpanded]);
+
+  const fetchModelAliases = async () => {
+    try {
+      const res = await fetch("/api/models/alias");
+      const data = await res.json();
+      if (res.ok) setModelAliases(data.aliases || {});
+    } catch { /* ignore */ }
+  };
 
   const loadSavedMappings = async () => {
     try {
@@ -300,6 +312,7 @@ export default function MitmToolCard({
         onSelect={handleModelSelect}
         selectedModel={currentEditingAlias ? modelMappings[currentEditingAlias] : null}
         activeProviders={activeProviders}
+        modelAliases={modelAliases}
         title={`Select model for ${currentEditingAlias}`}
       />
     </>
